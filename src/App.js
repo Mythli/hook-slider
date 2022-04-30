@@ -1,7 +1,11 @@
 import logo from './logo.svg';
 import './App.css';
-import {useEffect, useLayoutEffect, useState, useRef} from 'react';
+import {useEffect, useLayoutEffect, useState, useRef, useReducer} from 'react';
 import cn from 'classnames';
+
+const SET_INDEX = 'SET_INDEX';
+const SET_AUTO = 'SET_AUTO';
+const NAVIGATE_INDEX = 'NAVIGATE_INDEX';
 
 const slides = [
     { title: 'Elon Musk', description: 'Richest Guy', photo: 'url("slides/musk.jpeg")' },
@@ -30,10 +34,7 @@ function SliderBubble({i, slideIndex, navigateToSlide}) {
     };
 
     const onFocusBubble = (e) => {
-        if(i === slideIndex) {
-            return;
-        }
-
+        if(i === slideIndex) { return; }
         navigateToSlide(i);
     };
 
@@ -48,7 +49,7 @@ function SliderBubble({i, slideIndex, navigateToSlide}) {
     return (
         <li
             key={i}
-            className={cn('slider-bubble', { active: i === slideIndex })}
+            className="slider-bubble"
         >
             <a
                 href="#"
@@ -61,10 +62,9 @@ function SliderBubble({i, slideIndex, navigateToSlide}) {
     );
 }
 
-function SliderNavigation({slideCount, slideIndex, setActiveSlide, isAutoSliding, setIsAutoSliding, duration}) {
-    const navigateToSlide = (index) => {
-        setIsAutoSliding(false);
-        setActiveSlide(index);
+function SliderNavigation({slideIndex, isAutoSliding, duration, slideCount, auto, dispatch}) {
+    const navigateToSlide = (i) => {
+        dispatch({type: NAVIGATE_INDEX, i});
     };
 
 
@@ -75,7 +75,7 @@ function SliderNavigation({slideCount, slideIndex, setActiveSlide, isAutoSliding
 
     return (
         <div className={'slider-navigation'}>
-            <SliderProgressBar key={slideIndex} duration={duration} slideIndex={slideIndex} />
+            {auto && <SliderProgressBar key={slideIndex} duration={duration} slideIndex={slideIndex} />}
             <div className={'slider-navigation-controls'}>
                 <ul className={'slider-bubbles'}>
                     {slideBubbles}
@@ -84,7 +84,7 @@ function SliderNavigation({slideCount, slideIndex, setActiveSlide, isAutoSliding
 
                 </div>
                 <div className={'slider-buttons'}>
-                    {isAutoSliding ? <button onClick={() => setIsAutoSliding(false)}>PAUSE</button> : <button onClick={() => setIsAutoSliding(true)}>START</button>}
+                    {isAutoSliding ? <button onClick={() => dispatch({type: SET_AUTO, auto: false})}>PAUSE</button> : <button onClick={() => dispatch({type: SET_AUTO, auto: true})}>START</button>}
                     <button onClick={() => navigateToSlide(slideIndex-1)}>PREV</button>
                     <button onClick={() => navigateToSlide(slideIndex+1)}>NEXT</button>
                 </div>
@@ -109,35 +109,48 @@ function SliderProgressBar({duration, slideIndex}) {
     return <div ref={progressBarRef}  className={'slider-progress'} style={{ "--interval": duration+'s'}} />
 }
 
-function Slider({slides, duration}) {
-    const [slideIndex, setSlideIndex] = useState(0);
-    const [isAutoSliding, setIsAutoSliding] = useState(1);
+const useSliderReducer = (() => {
+    return useReducer((state, action) => {
+        const setSlideIndex = (state, action) => {
+            let i = action.i;
 
-    const setActiveSlide = (slideIndex) => {
-        if(slideIndex === -1) {
-            slideIndex = slides.length-1;
+            if(action.i === -1) {
+                i = slides.length-1;
+            }
+
+            if(action.i === slides.length) {
+                i = 0;
+            }
+
+            return {...state, i};
+        };
+
+        switch(action.type) {
+            case SET_AUTO:
+                return {...state, auto: !!action.auto}
+            case NAVIGATE_INDEX:
+                state = setSlideIndex(state, action);
+                return {...state, auto: false}
+            case SET_INDEX:
+                return setSlideIndex(state, action);
+            default: return state;
         }
+    }, { i: 0, auto: true });
+});
 
-        if(slideIndex === slides.length) {
-            slideIndex = 0;
-        }
+const useDocumentTitleEffect = (title) => {
+    return useEffect(() => {
+        document.title = title;
+    }, [title]);
+};
 
-        setSlideIndex(slideIndex);
-    };
-
-    const activeSlide = slides[slideIndex];
-
-    // run on mount/change, can compare, can unmount
-    useEffect(() => {
-       document.title = activeSlide.title;
-    }, [slideIndex]);
-
-    useEffect(() => {
-        if(!isAutoSliding) { return; }
+const useSlideTimeoutEffect = (auto,duration,i, dispatch) => {
+    return useEffect(() => {
+        if(!auto) { return; }
 
         const timeout = setTimeout(
             () => {
-                setActiveSlide(slideIndex+1);
+                dispatch({ type: SET_INDEX, i: i+1 });
             },
             duration*1000
         );
@@ -145,17 +158,25 @@ function Slider({slides, duration}) {
         return () => {
             clearTimeout(timeout);
         };
-    }, [slideIndex, duration, isAutoSliding]);
+    }, [auto,duration,i]);
+};
+
+function Slider({slides, duration}) {
+    const [{i, auto}, dispatch] = useSliderReducer();
+    const slide = slides[i];
+
+    useDocumentTitleEffect(slide.title)
+    useSlideTimeoutEffect(auto,duration,i, dispatch);
 
     return (
         <div className={'slider-container'}>
-            <Slide {...slides[slideIndex]} />
+            <Slide {...slide} />
             <SliderNavigation
-                slideIndex={slideIndex}
+                slideIndex={i}
+                isAutoSliding={auto}
+                dispatch={dispatch}
+                auto={auto}
                 slideCount={slides.length}
-                setActiveSlide={setActiveSlide}
-                isAutoSliding={isAutoSliding}
-                setIsAutoSliding={setIsAutoSliding}
                 duration={duration}
             />
         </div>
